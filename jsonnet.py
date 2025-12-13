@@ -21,10 +21,13 @@ class DotbotJsonnet(dotbot.Plugin):
       self._log.error(error.args[0])
       return False
 
-    dir = "generated/"
-    sources = ""
-    args = ""
-    return self._run_command(" ".join(command))
+    multi: str = data.get("milti", "generated/")
+    sources: str|list = data.get("sources", [])
+    if isinstance(sources, str):
+      return self._run_jsonnet(sources, multi)
+    for source in sources:
+      self._run_jsonnet(source, multi)
+    return True
 
   def _run_jsonnet(self, source, multi = None, plain_text = True, extras = None):
     try:
