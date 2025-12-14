@@ -7,7 +7,6 @@ class JsonnetResult:
   def __init__(self, out, config):
     if os.path.isdir(out) or (out.endswith("/") and not os.path.isfile(out)):
       self._multi = out
-      print(f"multi: {out}")
     else:
       raise ValueError(f"failed to determine output of jsonnet: {out}")
     if isinstance(config, str):
@@ -21,6 +20,10 @@ class JsonnetResult:
     if "vars_from_env" in config:
       for v in config["vars_from_env"]:
         self._ext_strs.append(v)
+    if "vars_from_file" in config:
+      for k,v in config["vars_from_file"].items():
+        # TODO(@s0cks): dont use cat to consume file
+        self._ext_strs.append(f"{k}=\"$(/bin/cat {v})\"")
     if "vars" in config:
       for k,v in config["vars"].items():
         self._ext_strs.append(f"{k}=\"{v}\"")
@@ -40,7 +43,6 @@ class JsonnetResult:
     if self.is_multi():
       command.append('-m')
       command.append(self._multi)
-    print("ex strs")
     for ex in self._ext_strs:
       command.append("--ext-str")
       command.append(ex)
@@ -84,7 +86,6 @@ class DotbotJsonnet(dotbot.Plugin):
     try:
       if not isinstance(command, list):
         command = [command]
-      print(f'running: {command}')
       subprocess.run([' '.join(command)], shell=True, check=True)
       return True
     except Exception as error:
