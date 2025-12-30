@@ -5,7 +5,7 @@ __version__ = "0.0.1"
 
 
 class JsonnetResult:
-    def __init__(self, out, config):
+    def __init__(self, out, config, include_dirs=[]):
         if os.path.isdir(out) or (out.endswith("/") and not os.path.isfile(out)):
             self._multi = out
         else:
@@ -17,7 +17,6 @@ class JsonnetResult:
         else:
             self._source = config["source"]
             self._config = config
-
             self._ext_strs = []
             if "vars_from_env" in config:
                 for v in config["vars_from_env"]:
@@ -29,10 +28,9 @@ class JsonnetResult:
             if "vars" in config:
                 for k, v in config["vars"].items():
                     self._ext_strs.append(f'{k}="{v}"')
+            self._include_dirs = include_dirs
             if "include_dirs" in config:
-                self._include_dirs = config["include_dirs"]
-            else:
-                self._include_dirs = []
+                self._include_dirs += config["include_dirs"]
 
     def is_plain_text(self):
         return self._config.plain_text if "plain_text" in self._config else True
@@ -82,15 +80,21 @@ class DotbotJsonnet(dotbot.Plugin):
             self._log.error(error.args[0])
             return False
 
-        for k, v in data.items():
+        self._include_dirs = []
+        if "include_dirs" in data:
+            self._include_dirs += data["include_dirs"]
+
+        items = data
+        if "items" in items:
+            items = items["items"]
+
+        for k, v in items.items():
             try:
-                result = JsonnetResult(k, v)
+                result = JsonnetResult(k, v, include_dirs=self._include_dirs)
                 command = result.get_command()
                 self._run_command(command)
             except Exception as ex:
-                print(
-                    f"failed to process jsonnet file `{k}` with config `{config}`: {ex}"
-                )
+                print(f"failed to process jsonnet file `{k}` with config `{v}`: {ex}")
         return True
 
     def _validate(self, data):
