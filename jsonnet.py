@@ -4,9 +4,28 @@ from pprint import PrettyPrinter
 __version__ = "0.0.1"
 
 
+def get_jsonnet_exec():
+    pass
+
+
+def which(cmd):
+    command = ["which", cmd]
+    result = subprocess.run(
+        [" ".join(command)], shell=True, check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
+def get_jsonnet_version(cmd):
+    command = [cmd, "--version"]
+    result = subprocess.run(
+        [" ".join(command)], shell=True, check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
 class JsonnetResult:
     def __init__(self, out, config, include_dirs=[]):
-        self._out = out
         if os.path.isdir(out) or (out.endswith("/") and not os.path.isfile(out)):
             self._multi = out
         else:
@@ -33,37 +52,30 @@ class JsonnetResult:
             if "include_dirs" in config:
                 self._include_dirs += config["include_dirs"]
 
+    def source(self):
+        return self._source
+
+    def ext_strs(self):
+        return self._ext_strs
+
     def is_plain_text(self):
         return self._config.plain_text if "plain_text" in self._config else True
 
-    def is_multi(self):
-        return self._multi != None
-
-    def get_command(self, extras=None):
-        command = []
-        command.append("jsonnet")
-        # command.append("--create-output-dirs")
-        if os.path.isdir(os.path.join(self._out, "lib")):
-            command.append("-J")
-            command.append(self._out)
-        for include_dir in self._include_dirs:
-            command.append("-J")
-            command.append(include_dir)
-        if self.is_plain_text():
-            command.append("-S")
-        if self.is_multi():
-            command.append("-m")
-            command.append(self._multi)
-        for ex in self._ext_strs:
-            command.append("--ext-str")
-            command.append(ex)
-        if extras != None:
-            command.append(extras)
-        command.append(self._source)
-        return command
+    def multi(self):
+        return self._multi
 
 
 class DotbotJsonnet(dotbot.Plugin):
+    def __init__(self, ctx):
+        super().__init__(ctx)
+        try:
+            self._jsonnet_exec = which("jsonnet")
+        except subprocess.CalledProcessError as ex:
+            self._log.error(f"failed to find jsonnet executable: {ex.stderr}")
+        self._log.info(
+            f"found Jsonnet v{get_jsonnet_version(self._jsonnet_exec)}: {self._jsonnet_exec}"
+        )
+
     def can_handle(self, directive):
         """Flag whether or not this plugin supports the given *directive*."""
         valid = directive == "jsonnet"
@@ -73,15 +85,12 @@ class DotbotJsonnet(dotbot.Plugin):
             )
         return valid
 
+    def include_dirs(self):
+        return self._include_dirs
+
     def handle(self, directive, data):
         if not self.can_handle(directive):
             self._log.error(f"cannot handle the `{directive}` directive")
-            return False
-
-        try:
-            self._validate(data)
-        except ValueError as error:
-            self._log.error(error.args[0])
             return False
 
         self._include_dirs = []
@@ -93,32 +102,49 @@ class DotbotJsonnet(dotbot.Plugin):
             items = items["items"]
 
         for k, v in items.items():
+            result = JsonnetResult(k, v, include_dirs=self._include_dirs)
             try:
-                result = JsonnetResult(k, v, include_dirs=self._include_dirs)
-                command = result.get_command()
-                self._run_command(command)
-            except Exception as ex:
-                print(f"failed to process jsonnet file `{k}` with config `{v}`: {ex}")
+                self._log.info(f"compiling {result.source()}....")
+                self._jsonnet(
+                    self._jsonnet_exec,
+                    result.source(),
+                    self.include_dirs(),
+                    result.is_plain_text(),
+                    result.multi(),
+                    result.ext_strs(),
+                )
+            except subprocess.CalledProcessError as ex:
+                print(
+                    f"failed to process jsonnet file `{k}` with config `{v}`: {ex.stderr}"
+                )
         return True
 
-    def _validate(self, data):
-        pass
-
-    def _run_command(self, command):
-        try:
-            if not isinstance(command, list):
-                command = [command]
-            print(f"executing: {command}")
-            subprocess.run(
-                [" ".join(command)],
-                shell=True,
-                text=True,
-                check=True,
-                capture_output=True,
-            )
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"jsonnet failed with return code {e.returncode}")
-            print("STDOUT (captured in exception):", e.stdout)
-            print("STDERR (captured in exception):", e.stderr)
-            return False
+    def _jsonnet(
+        self,
+        exec,
+        source,
+        include_dirs=[],
+        plain_text=True,
+        multi=None,
+        ext_strs=[],
+        extras=[],
+    ):
+        command = [exec]
+        command.append("--create-output-dirs")
+        if plain_text:
+            command.append("-S")
+        if multi != None:
+            command.append("-m")
+            command.append(multi)
+        for dir in include_dirs:
+            command.append("-J")
+            command.append(dir)
+        for ex in ext_strs:
+            command.append("--ext-str")
+            command.append(ex)
+        command += extras
+        command.append(source)
+        self._log.debug(f"executing {' '.join(command)}")
+        subprocess.run(
+            [" ".join(command)], shell=True, check=True, capture_output=True, text=True
+        )
