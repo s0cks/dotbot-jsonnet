@@ -51,6 +51,7 @@ class JsonnetResult:
             self._multi = out
         else:
             raise ValueError(f"failed to determine output of jsonnet: {out}")
+
         if isinstance(config, str):
             self._source = str
         elif not "source" in config:
@@ -72,17 +73,41 @@ class JsonnetResult:
                 config["include_dirs"] if "include_dirs" in config else []
             )
 
-    def source(self):
-        return self._source
-
-    def ext_strs(self):
-        return self._ext_strs
-
     def is_plain_text(self):
         return self._config.plain_text if "plain_text" in self._config else True
 
+    def is_multi(self):
+        return self._multi != None
+
     def multi(self):
         return self._multi
+
+    def include_dirs(self):
+        return self._include_dirs
+
+    def extra_strings(self):
+        return self._ext_strs
+
+    def source(self):
+        return self._source
+
+    def command(self, extras=[]):
+        command = []
+        command.append("--create-output-dirs")
+        if self.is_plain_text():
+            command.append("-S")
+        if self.is_multi():
+            command.append("-m")
+            command.append(self.multi())
+        for dir in self.include_dirs():
+            command.append("-J")
+            command.append(dir)
+        for ex in self.extra_strings():
+            command.append("--ext-str")
+            command.append(ex)
+        command += extras
+        command.append(self.source())
+        return command
 
 
 class DotbotJsonnet(dotbot.Plugin):
@@ -125,46 +150,20 @@ class DotbotJsonnet(dotbot.Plugin):
             result = JsonnetResult(k, v, include_dirs=self._include_dirs)
             try:
                 self._log.info(f"compiling {result.source()}....")
-                self._jsonnet(
-                    self._jsonnet_exec,
-                    result.source(),
-                    self.include_dirs(),
-                    result.is_plain_text(),
-                    result.multi(),
-                    result.ext_strs(),
-                )
+                self._jsonnet(self._jsonnet_exec, result)
             except subprocess.CalledProcessError as ex:
-                print(
+                self._.log.error(
                     f"failed to process jsonnet file `{k}` with config `{v}`: {ex.stderr}"
                 )
         return True
 
-    def _jsonnet(
-        self,
-        exec,
-        source,
-        include_dirs=[],
-        plain_text=True,
-        multi=None,
-        ext_strs=[],
-        extras=[],
-    ):
-        command = [exec]
-        command.append("--create-output-dirs")
-        if plain_text:
-            command.append("-S")
-        if multi != None:
-            command.append("-m")
-            command.append(multi)
-        for dir in include_dirs:
-            command.append("-J")
-            command.append(dir)
-        for ex in ext_strs:
-            command.append("--ext-str")
-            command.append(ex)
-        command += extras
-        command.append(source)
-        self._log.debug(f"executing {' '.join(command)}")
+    def _jsonnet(self, exec, source):
+        command = source.command()
+        self._log.debug(f"executing jsonnet: {' '.join(command)}")
         subprocess.run(
-            [" ".join(command)], shell=True, check=True, capture_output=True, text=True
+            [exec] + command,
+            shell=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
