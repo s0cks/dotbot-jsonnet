@@ -1,17 +1,25 @@
 import subprocess, dotbot, os
 from pprint import PrettyPrinter
+from pathlib import Path
 
 __version__ = "0.0.1"
-
-
-def get_jsonnet_exec():
-    pass
 
 
 def which(cmd):
     command = ["which", cmd]
     result = subprocess.run(
         [" ".join(command)], shell=True, check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+
+def cat_file(file):
+    return Path(file).read_text(encoding="utf-8").strip()
+
+
+def exec_command(cmd):
+    result = subprocess.run(
+        [" ".join([cmd])], shell=True, check=True, capture_output=True, text=True
     )
     return result.stdout.strip()
 
@@ -27,22 +35,32 @@ def get_jsonnet_version(cmd):
 class JsonnetVar:
     def __init__(self, k, v=None):
         self.name = k
-        if v == None:
-            return
-        elif type(v) == "str":
+        if v == None or isinstance(v, str):
             self.value = v
-        elif type(v) != "dict":
+            return
+        elif not isinstance(v, dict):
             raise Exception(f"invalid var value: {v}")
         if "env" in v:
             self.value = "$" + v["env"]
         elif "file" in v:
-            # TODO(@s0cks): dont use cat to consume file
-            self.value = f"$(/usr/bin/cat {v['file']})"
+            try:
+                self.value = '"' + cat_file(v["file"]) + '"'
+            except Exception as ex:
+                raise Exception(f"failed to read jsonnet var from file {v['file']}", ex)
         elif "command" in v:
-            self.value = f"$({v['command']})"
+            try:
+                self.value = '"' + exec_command(v["command"]) + '"'
+            except subprocess.CalledProcessError as ex:
+                raise Exception(
+                    f"failed to get jsonnet var from command {v['command']}: {ex.stderr}",
+                    ex,
+                )
 
     def __str__(self):
-        return self.name + ("=" + self.value if self.value else "")
+        if self.value:
+            return f"{self.name}={self.value}"
+        else:
+            return self.name
 
 
 class JsonnetResult:
@@ -104,7 +122,7 @@ class JsonnetResult:
             command.append(dir)
         for ex in self.extra_strings():
             command.append("--ext-str")
-            command.append(ex)
+            command.append(str(ex))
         command += extras
         command.append(self.source())
         return command
@@ -152,7 +170,7 @@ class DotbotJsonnet(dotbot.Plugin):
                 self._log.info(f"compiling {result.source()}....")
                 self._jsonnet(self._jsonnet_exec, result)
             except subprocess.CalledProcessError as ex:
-                self._.log.error(
+                self._log.error(
                     f"failed to process jsonnet file `{k}` with config `{v}`: {ex.stderr}"
                 )
         return True
@@ -161,7 +179,7 @@ class DotbotJsonnet(dotbot.Plugin):
         command = source.command()
         self._log.debug(f"executing jsonnet: {' '.join(command)}")
         subprocess.run(
-            [exec] + command,
+            [" ".join([exec] + command)],
             shell=True,
             check=True,
             capture_output=True,
