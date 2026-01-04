@@ -24,6 +24,27 @@ def get_jsonnet_version(cmd):
     return result.stdout.strip()
 
 
+class JsonnetVar:
+    def __init__(self, k, v=None):
+        self.name = k
+        if v == None:
+            return
+        elif type(v) == "str":
+            self.value = v
+        elif type(v) != "dict":
+            raise Exception(f"invalid var value: {v}")
+        if "env" in v:
+            self.value = "$" + v["env"]
+        elif "file" in v:
+            # TODO(@s0cks): dont use cat to consume file
+            self.value = f"$(/usr/bin/cat {v['file']})"
+        elif "command" in v:
+            self.value = f"$({v['command']})"
+
+    def __str__(self):
+        return self.name + ("=" + self.value if self.value else "")
+
+
 class JsonnetResult:
     def __init__(self, out, config, include_dirs=[]):
         if os.path.isdir(out) or (out.endswith("/") and not os.path.isfile(out)):
@@ -38,19 +59,18 @@ class JsonnetResult:
             self._source = config["source"]
             self._config = config
             self._ext_strs = []
-            if "vars_from_env" in config:
-                for v in config["vars_from_env"]:
-                    self._ext_strs.append(v)
-            if "vars_from_file" in config:
-                for k, v in config["vars_from_file"].items():
-                    # TODO(@s0cks): dont use cat to consume file
-                    self._ext_strs.append(f'{k}="$(/bin/cat {v})"')
-            if "vars" in config:
-                for k, v in config["vars"].items():
-                    self._ext_strs.append(f'{k}="{v}"')
+            self._ext_strs += [
+                JsonnetVar(v)
+                for v in (config["vars_from_env"] if "vars_from_env" in config else [])
+            ]
+            self._ext_strs += [
+                JsonnetVar(k, v)
+                for k, v in (config["vars"] if "vars" in config else {}).items()
+            ]
             self._include_dirs = include_dirs
-            if "include_dirs" in config:
-                self._include_dirs += config["include_dirs"]
+            self._include_dirs += (
+                config["include_dirs"] if "include_dirs" in config else []
+            )
 
     def source(self):
         return self._source
