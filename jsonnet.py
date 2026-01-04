@@ -6,6 +6,7 @@ __version__ = "0.0.1"
 
 class JsonnetResult:
     def __init__(self, out, config, include_dirs=[]):
+        self._out = out
         if os.path.isdir(out) or (out.endswith("/") and not os.path.isfile(out)):
             self._multi = out
         else:
@@ -41,7 +42,10 @@ class JsonnetResult:
     def get_command(self, extras=None):
         command = []
         command.append("jsonnet")
-        command.append("--create-output-dirs")
+        # command.append("--create-output-dirs")
+        if os.path.isdir(os.path.join(self._out, "lib")):
+            command.append("-J")
+            command.append(self._out)
         for include_dir in self._include_dirs:
             command.append("-J")
             command.append(include_dir)
@@ -53,9 +57,9 @@ class JsonnetResult:
         for ex in self._ext_strs:
             command.append("--ext-str")
             command.append(ex)
-        command.append(self._source)
         if extras != None:
             command.append(extras)
+        command.append(self._source)
         return command
 
 
@@ -104,8 +108,17 @@ class DotbotJsonnet(dotbot.Plugin):
         try:
             if not isinstance(command, list):
                 command = [command]
-            subprocess.run([" ".join(command)], shell=True, check=True)
+            print(f"executing: {command}")
+            subprocess.run(
+                [" ".join(command)],
+                shell=True,
+                text=True,
+                check=True,
+                capture_output=True,
+            )
             return True
-        except Exception as error:
-            print(f"failed to run jsonnet: {error}")
+        except subprocess.CalledProcessError as e:
+            print(f"jsonnet failed with return code {e.returncode}")
+            print("STDOUT (captured in exception):", e.stdout)
+            print("STDERR (captured in exception):", e.stderr)
             return False
