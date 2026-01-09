@@ -33,7 +33,11 @@ def get_jsonnet_version(cmd):
 
 
 def find_libs(dir):
-    return next(os.walk(dir))[1]
+    return [
+        os.path.join(dir, name)
+        for name in os.listdir(dir)
+        if os.path.isdir(os.path.join(dir, name))
+    ]
 
 
 class JsonnetVar:
