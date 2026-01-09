@@ -32,6 +32,10 @@ def get_jsonnet_version(cmd):
     return result.stdout.strip()
 
 
+def find_libs(dir):
+    return next(os.walk(dir))[1]
+
+
 class JsonnetVar:
     def __init__(self, k, v=None):
         self.name = k
@@ -159,6 +163,11 @@ class DotbotJsonnet(dotbot.Plugin):
         self._include_dirs = []
         if "include_dirs" in data:
             self._include_dirs += data["include_dirs"]
+        if "libs_dir" in data:
+            self._include_dirs += find_libs(data["libs_dir"])
+        if "libs_dirs" in data:
+            for libs_dir in data["libs_dirs"]:
+                self._include_dirs += find_libs(libs_dir)
 
         items = data
         if "items" in items:
